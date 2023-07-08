@@ -1,0 +1,14 @@
+[package]
+name = "cilium_map_dump"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.71"
+bitflags = { version = "2.3.3", features = ["serde"] }
+libbpf-rs = "0.20.1"
+plain = "0.2.3"
+serde = { version = "1.0.164", features = ["derive"] }
+serde_json = "1.0.99"
