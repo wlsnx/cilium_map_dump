@@ -627,18 +627,8 @@ struct Ipv4CtTupleRaw {
 
 unsafe impl Plain for Ipv4CtTupleRaw {}
 
-#[derive(Serialize)]
-struct Ipv4CtTuple {
-    daddr: Ipv4Addr,
-    saddr: Ipv4Addr,
-    dport: u16,
-    sport: u16,
-    nexthdr: String,
-    flags: u8,
-}
-
-impl ToSerialize for Ipv4CtTupleRaw {
-    fn to_serialize(&self) -> impl Serialize {
+impl Ipv4CtTupleRaw {
+    fn serialize(&self) -> Ipv4CtTuple {
         let daddr = Ipv4Addr::from(u32::from_be(self.daddr));
         let saddr = Ipv4Addr::from(u32::from_be(self.saddr));
         let dport = u16::from_be(self.dport);
@@ -651,6 +641,22 @@ impl ToSerialize for Ipv4CtTupleRaw {
             nexthdr: proto(self.nexthdr),
             flags: self.flags,
         }
+    }
+}
+
+#[derive(Serialize)]
+struct Ipv4CtTuple {
+    daddr: Ipv4Addr,
+    saddr: Ipv4Addr,
+    dport: u16,
+    sport: u16,
+    nexthdr: String,
+    flags: u8,
+}
+
+impl ToSerialize for Ipv4CtTupleRaw {
+    fn to_serialize(&self) -> impl Serialize {
+        self.serialize()
     }
 }
 
@@ -1169,6 +1175,29 @@ struct CtStateRaw {
 
 unsafe impl Plain for CtStateRaw {}
 
+impl CtStateRaw {
+    fn serialize(&self) -> CtState {
+        let addr = Ipv4Addr::from(u32::from_be(self.addr));
+        let svc_addr = Ipv4Addr::from(u32::from_be(self.svc_addr));
+        let flags = &self.flags;
+        CtState {
+            rev_nat_index: self.rev_nat_index,
+            loopback: flags.contains(CtStateFlags::LOOPBACK),
+            node_port: flags.contains(CtStateFlags::NODE_PORT),
+            dsr: flags.contains(CtStateFlags::DSR),
+            syn: flags.contains(CtStateFlags::SYN),
+            proxy_redirect: flags.contains(CtStateFlags::PROXY_REDIRECT),
+            from_l7lb: flags.contains(CtStateFlags::FROM_L7LB),
+            from_tunnel: flags.contains(CtStateFlags::FROM_TUNNEL),
+            addr,
+            svc_addr,
+            src_sec_id: self.src_sec_id,
+            ifindex: self.ifindex,
+            backend_id: self.backend_id,
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct CtState {
     rev_nat_index: u16,
@@ -1188,24 +1217,7 @@ struct CtState {
 
 impl ToSerialize for CtStateRaw {
     fn to_serialize(&self) -> impl Serialize {
-        let addr = Ipv4Addr::from(u32::from_be(self.addr));
-        let svc_addr = Ipv4Addr::from(u32::from_be(self.svc_addr));
-        let flags = &self.flags;
-        CtState {
-            rev_nat_index: self.rev_nat_index,
-            loopback: flags.contains(CtStateFlags::LOOPBACK),
-            node_port: flags.contains(CtStateFlags::NODE_PORT),
-            dsr: flags.contains(CtStateFlags::DSR),
-            syn: flags.contains(CtStateFlags::SYN),
-            proxy_redirect: flags.contains(CtStateFlags::PROXY_REDIRECT),
-            from_l7lb: flags.contains(CtStateFlags::FROM_L7LB),
-            from_tunnel: flags.contains(CtStateFlags::FROM_TUNNEL),
-            addr,
-            svc_addr,
-            src_sec_id: self.src_sec_id,
-            ifindex: self.ifindex,
-            backend_id: self.backend_id,
-        }
+        self.serialize()
     }
 }
 
@@ -1354,45 +1366,9 @@ struct CtBuffer4 {
 
 impl ToSerialize for CtBuffer4Raw {
     fn to_serialize(&self) -> impl Serialize {
-        let tuple = {
-            let tuple = &self.tuple;
-            let daddr = Ipv4Addr::from(u32::from_be(tuple.daddr));
-            let saddr = Ipv4Addr::from(u32::from_be(tuple.saddr));
-            let dport = u16::from_be(tuple.dport);
-            let sport = u16::from_be(tuple.sport);
-            Ipv4CtTuple {
-                daddr,
-                saddr,
-                dport,
-                sport,
-                nexthdr: proto(tuple.nexthdr),
-                flags: tuple.flags,
-            }
-        };
-        let ct_state = {
-            let ct_state = &self.ct_state;
-            let addr = Ipv4Addr::from(u32::from_be(ct_state.addr));
-            let svc_addr = Ipv4Addr::from(u32::from_be(ct_state.svc_addr));
-            let flags = &ct_state.flags;
-            CtState {
-                rev_nat_index: ct_state.rev_nat_index,
-                loopback: flags.contains(CtStateFlags::LOOPBACK),
-                node_port: flags.contains(CtStateFlags::NODE_PORT),
-                dsr: flags.contains(CtStateFlags::DSR),
-                syn: flags.contains(CtStateFlags::SYN),
-                proxy_redirect: flags.contains(CtStateFlags::PROXY_REDIRECT),
-                from_l7lb: flags.contains(CtStateFlags::FROM_L7LB),
-                from_tunnel: flags.contains(CtStateFlags::FROM_TUNNEL),
-                addr,
-                svc_addr,
-                src_sec_id: ct_state.src_sec_id,
-                ifindex: ct_state.ifindex,
-                backend_id: ct_state.backend_id,
-            }
-        };
         CtBuffer4 {
-            tuple,
-            ct_state,
+            tuple: self.tuple.serialize(),
+            ct_state: self.ct_state.serialize(),
             monitor: self.monitor,
             ret: self.ret,
         }
@@ -1429,7 +1405,10 @@ macro_rules! dump_percpu {
                 println!("map id {} name {}", map_info.id, map_info.name);
                 let map = Map::from_map_id(map_info.id)?;
                 for key in map.keys() {
-                    println!("key: {}", u32::from_be_bytes(key.clone().try_into().unwrap()));
+                    println!(
+                        "key: {}",
+                        u32::from_be_bytes(key.clone().try_into().unwrap())
+                    );
                     for (i, value) in map
                         .lookup_percpu(&key, MapFlags::empty())?
                         .unwrap()
@@ -1448,10 +1427,10 @@ macro_rules! dump_percpu {
 }
 
 macro_rules! dump {
-    ($name:expr, $key:ty, $value:ty) => {{
+    ($name:expr, $key:ty, $value:ty $(, $key_size:expr)?) => {{
         let map_info_iter = MapInfoIter::default();
         for map_info in map_info_iter {
-            if map_info.name.starts_with($name) {
+            if map_info.name.starts_with($name) $(&& map_info.key_size == $key_size)? {
                 println!("map id {} name {}", map_info.id, map_info.name);
                 let map = Map::from_map_id(map_info.id)?;
                 for mut key in map.keys() {
@@ -1468,10 +1447,10 @@ macro_rules! dump {
             }
         }
     }};
-    ($name:expr, $value:ty) => {{
+    ($name:expr, $value:ty $(, $key_size:expr)?) => {{
         let map_info_iter = MapInfoIter::default();
         for map_info in map_info_iter {
-            if map_info.name.starts_with($name) {
+            if map_info.name.starts_with($name) $(&& map_info.key_size == $key_size)? {
                 println!("map id {} name {}", map_info.id, map_info.name);
                 let map = Map::from_map_id(map_info.id)?;
                 for key in map.keys() {
@@ -1495,8 +1474,13 @@ pub fn dump(name: &str) -> Result<()> {
         "encrypt" => dump!("cilium_encrypt_", EncryptConfig),
         "ct4_glob" => dump!("cilium_ct4_glob", Ipv4CtTupleRaw, CtEntryRaw),
         "ct_any4" => dump!("cilium_ct_any4_", Ipv4CtTupleRaw, CtEntryRaw),
-        "lb4_reverse_nat" => dump!("cilium_lb4_reve", Lb4ReverseNatRaw),
-        "lb4_reverse_nat_sk" => dump!("cilium_lb4_reve", Ipv4RevnatTupleRaw, Ipv4RevnatEntryRaw),
+        "lb4_reverse_nat" => dump!("cilium_lb4_reve", Lb4ReverseNatRaw, 2),
+        "lb4_reverse_nat_sk" => dump!(
+            "cilium_lb4_reve",
+            Ipv4RevnatTupleRaw,
+            Ipv4RevnatEntryRaw,
+            16
+        ),
         "lb4_services" => dump!("cilium_lb4_serv", Lb4KeyRaw, Lb4Service),
         "lb4_backend" => dump!("cilium_lb4_back", Lb4BackendRaw),
         "lb_affinity" => dump!("cilium_lb_affin", Lb4AffinityKey, LbAffinityVal),
