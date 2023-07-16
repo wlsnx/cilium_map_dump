@@ -987,7 +987,7 @@ struct Lb4Key {
 
 impl ToSerialize for Lb4KeyRaw {
     fn to_serialize(&self) -> impl Serialize {
-        let address = Ipv4Addr::from(self.address);
+        let address = Ipv4Addr::from(u32::from_be(self.address));
         Lb4Key {
             address,
             dport: u16::from_be(self.dport),
