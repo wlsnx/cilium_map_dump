@@ -1464,7 +1464,7 @@ macro_rules! dump {
                 println!("map id {} name {}", map_info.id, map_info.name);
                 let map = Map::from_map_id(map_info.id)?;
                 for key in map.keys() {
-                    println!("key: {}", u32::from_be_bytes(key.clone().try_into().unwrap()));
+                    println!("key: {}", u32::from_le_bytes(key.clone().try_into().unwrap()));
                     let mut value = map.lookup(&key, MapFlags::empty())?.unwrap();
                     let mut _value = <$value>::default();
                     value.extend(vec![0; size_of_val(&_value).saturating_sub(value.len())]);
