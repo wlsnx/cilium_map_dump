@@ -792,7 +792,7 @@ struct Lb6Key {
     dport: u16,
     backend_slot: u16,
     proto: u8,
-    scope: u8,
+    scope: String,
 }
 
 impl ToSerialize for Lb6KeyRaw {
@@ -803,7 +803,12 @@ impl ToSerialize for Lb6KeyRaw {
             dport: u16::from_be(self.dport),
             backend_slot: self.backend_slot,
             proto: self.proto,
-            scope: self.scope,
+            scope: match self.scope {
+                0 => "LB_LOOKUP_SCOPE_EXT",
+                1 => "LB_LOOKUP_SCOPE_INT",
+                _ => "",
+            }
+            .to_string(),
         }
     }
 }
@@ -977,7 +982,7 @@ struct Lb4Key {
     dport: u16,
     backend_slot: u16,
     proto: String,
-    scope: u8,
+    scope: String,
 }
 
 impl ToSerialize for Lb4KeyRaw {
@@ -988,7 +993,12 @@ impl ToSerialize for Lb4KeyRaw {
             dport: u16::from_be(self.dport),
             backend_slot: self.backend_slot,
             proto: proto(self.proto),
-            scope: self.scope,
+            scope: match self.scope {
+                0 => "LB_LOOKUP_SCOPE_EXT",
+                1 => "LB_LOOKUP_SCOPE_INT",
+                _ => "",
+            }
+            .to_string(),
         }
     }
 }
