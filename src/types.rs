@@ -1415,10 +1415,7 @@ macro_rules! dump_percpu {
                 println!("map id {} name {}", map_info.id, map_info.name);
                 let map = Map::from_map_id(map_info.id)?;
                 for key in map.keys() {
-                    println!(
-                        "key: {}",
-                        u32::from_be_bytes(key.clone().try_into().unwrap())
-                    );
+                    println!("key: {:?}", key);
                     for (i, value) in map
                         .lookup_percpu(&key, MapFlags::empty())?
                         .unwrap()
@@ -1464,9 +1461,7 @@ macro_rules! dump {
                 println!("map id {} name {}", map_info.id, map_info.name);
                 let map = Map::from_map_id(map_info.id)?;
                 for key in map.keys() {
-                    let mut _key = key.clone();
-                    _key.extend(vec![0; size_of::<usize>().saturating_sub(_key.len())]);
-                    println!("key: {}", usize::from_le_bytes(_key.try_into().unwrap()));
+                    println!("key: {:?}", key);
                     let mut value = map.lookup(&key, MapFlags::empty())?.unwrap();
                     let mut _value = <$value>::default();
                     value.extend(vec![0; size_of_val(&_value).saturating_sub(value.len())]);
