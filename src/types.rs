@@ -1,11 +1,14 @@
 use anyhow::Result;
 use bitflags::bitflags;
+use libbpf_rs::PerfBufferBuilder;
 use libbpf_rs::{query::MapInfoIter, Map, MapFlags};
 use plain::Plain;
 use serde::Serialize;
 use serde_json::to_string_pretty;
-use std::mem::{size_of, size_of_val};
+use std::fmt::{self, Debug};
+use std::mem::size_of_val;
 use std::net::{Ipv4Addr, Ipv6Addr};
+use std::time::Duration;
 
 trait ToSerialize {
     fn to_serialize(&self) -> impl Serialize {}
@@ -534,21 +537,6 @@ struct VtepValue {
 }
 
 unsafe impl Plain for VtepValue {}
-
-// NOTIFY_COMMON_HDR
-// _type: u8,
-// subtype: u8,
-// source: u16,
-// hash: u32,
-
-// NOTIFY_CAPTURE_HDR
-// _type: u8,
-// subtype: u8,
-// source: u16,
-// hash: u32,
-// len_orig: u32,
-// len_cap: u16,
-// version: u16,
 
 #[repr(C)]
 #[derive(Default, Serialize, Clone)]
@@ -1473,6 +1461,59 @@ macro_rules! dump {
     }};
 }
 
+fn handle_event(_cpu: i32, data: &[u8]) {
+    match data.len() {
+        44 => {
+            let mut d = data.to_vec();
+            let mut notify = TraceSockNotify::default();
+            d.extend(vec![0; size_of_val(&notify).saturating_sub(d.len())]);
+            notify.copy_from_bytes(&d).unwrap();
+            println!("{:?}", notify);
+        }
+        _ => (),
+    };
+}
+
+#[repr(C)]
+#[derive(Default)]
+struct TraceSockNotify {
+    ty: u8,
+    xlate_point: u8,
+    dst_ip: [u8; 16],
+    dst_port: u16,
+    sock_cookie: u64,
+    cgroup_id: u64,
+    l4_proto: u8,
+    ipv6: u8,
+}
+
+unsafe impl Plain for TraceSockNotify {}
+
+impl Debug for TraceSockNotify {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("trace_sock_notify")
+            .field("type", &self.ty)
+            .field("xlate_point", &self.xlate_point)
+            .field(
+                "dst_ip",
+                &(if self.ipv6 == 0 {
+                    Ipv4Addr::from(u32::from_be_bytes(
+                        <[u8; 4]>::try_from(&self.dst_ip[..4]).unwrap(),
+                    ))
+                    .to_string()
+                } else {
+                    Ipv6Addr::from(self.dst_ip).to_string()
+                }),
+            )
+            .field("dst_port", &self.dst_port)
+            .field("sock_cookie", &self.sock_cookie)
+            .field("cgroup_id", &self.cgroup_id)
+            .field("l4_proto", &proto(self.l4_proto))
+            .field("ipv6", &(self.ipv6 != 0))
+            .finish()
+    }
+}
+
 pub fn dump(name: &str) -> Result<()> {
     match name {
         "metrics" => dump_percpu!("cilium_metrics", MetricsKey, MetricsValue),
@@ -1494,6 +1535,20 @@ pub fn dump(name: &str) -> Result<()> {
         "snat_v4" => dump!("cilium_snat_v4_", Ipv4CtTupleRaw, Ipv4NatEntryRaw),
         "ipcache" => dump!("cilium_ipcache", IpcacheKeyRaw, RemoteEndpointInfoRaw),
         "ct_buffer4" => dump_percpu!("cilium_tail_cal", CtBuffer4Raw),
+        "events" => {
+            let map_info_iter = MapInfoIter::default();
+            for map_info in map_info_iter {
+                if map_info.name.starts_with("cilium_events") {
+                    let map = Map::from_map_id(map_info.id)?;
+                    let events = PerfBufferBuilder::new(&map)
+                        .sample_cb(handle_event)
+                        .build()?;
+                    loop {
+                        events.poll(Duration::MAX)?;
+                    }
+                }
+            }
+        }
         _ => (),
     }
     Ok(())
